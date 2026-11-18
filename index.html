@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f7f4">
+    <meta name="description" content="출발지와 도착지를 검색하고 자동차 이동 거리를 확인하세요.">
+    <title>어디까지 가볼까? | 거리 계산기</title>
+    <link rel="preconnect" href="https://nominatim.openstreetmap.org">
+    <link rel="preconnect" href="https://router.project-osrm.org">
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1d2b24;
+        --muted: #78827b;
+        --green: #27734e;
+        --green-dark: #1c5b3c;
+        --line: #e6eae5;
+        --surface: #fff;
+        --canvas: #f5f7f4;
+        --danger: #b5473c;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        background:
+          radial-gradient(ellipse at 82% 4%, rgba(198, 222, 188, .4), transparent 34rem),
+          var(--canvas);
+        color: var(--ink);
+        font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button, input { font: inherit; }
+      button { color: inherit; }
+
+      .page {
+        width: min(100% - 40px, 600px);
+        margin: 0 auto;
+        padding: 48px 0 28px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--green-dark);
+        font-size: 14px;
+        font-weight: 750;
+        letter-spacing: -.025em;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border-radius: 10px;
+        background: #e2eee2;
+      }
+
+      .brand-mark svg { width: 18px; height: 18px; }
+
+      header { margin-bottom: 30px; }
+
+      h1 {
+        margin: 27px 0 9px;
+        font-size: clamp(29px, 7vw, 39px);
+        font-weight: 760;
+        letter-spacing: -.065em;
+        line-height: 1.22;
+      }
+
+      .intro {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .card {
+        padding: 24px;
+        border: 1px solid rgba(224, 230, 222, .9);
+        border-radius: 20px;
+        background: var(--surface);
+        box-shadow: 0 12px 35px rgba(32, 54, 37, .055);
+      }
+
+      .locations { position: relative; }
+
+      .route-line {
+        position: absolute;
+        top: 42px;
+        bottom: 42px;
+        left: 12px;
+        border-left: 1px dashed #bdc9bd;
+      }
+
+      .location {
+        position: relative;
+        padding-left: 34px;
+      }
+
+      .location + .location { margin-top: 21px; }
+
+      .dot {
+        position: absolute;
+        top: 37px;
+        left: 5px;
+        width: 15px;
+        height: 15px;
+        border: 3px solid #fff;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 0 1px #b6d0bb;
+      }
+
+      .location:last-child .dot {
+        border-radius: 4px;
+        background: #e39b4e;
+        box-shadow: 0 0 0 1px #efd1ac;
+      }
+
+      .field-label {
+        display: block;
+        margin: 0 0 8px;
+        color: #536057;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .input-wrap { position: relative; }
+
+      .location input {
+        width: 100%;
+        height: 50px;
+        padding: 0 15px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        outline: none;
+        background: #fbfcfa;
+        color: var(--ink);
+        font-size: 15px;
+        transition: border-color .15s, box-shadow .15s, background .15s;
+      }
+
+      .location input::placeholder { color: #a4ada5; }
+      .location input:focus {
+        border-color: #83b397;
+        background: #fff;
+        box-shadow: 0 0 0 3px rgba(69, 139, 93, .12);
+      }
+
+      .suggestions {
+        position: absolute;
+        z-index: 3;
+        top: calc(100% + 6px);
+        right: 0;
+        left: 0;
+        display: none;
+        max-height: 240px;
+        overflow-y: auto;
+        padding: 5px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(23, 42, 27, .12);
+      }
+
+      .suggestions.open { display: block; }
+
+      .suggestion {
+        display: block;
+        width: 100%;
+        padding: 11px 10px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .suggestion:hover, .suggestion:focus-visible {
+        outline: none;
+        background: #f1f6f0;
+      }
+
+      .suggestion-name {
+        display: block;
+        overflow: hidden;
+        font-size: 14px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .suggestion-detail {
+        display: block;
+        overflow: hidden;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .search-status {
+        padding: 12px 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .swap {
+        position: absolute;
+        z-index: 1;
+        top: 47px;
+        right: 12px;
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #fff;
+        color: #647168;
+        cursor: pointer;
+      }
+
+      .swap:hover { background: #f3f7f2; color: var(--green-dark); }
+      .location input { padding-right: 52px; }
+      .location input.has-value { padding-right: 15px; }
+
+      .calculate {
+        display: flex;
+        width: 100%;
+        min-height: 52px;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        margin-top: 25px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--green);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background .15s, transform .15s;
+      }
+
+      .calculate:hover:not(:disabled) { background: var(--green-dark); }
+      .calculate:active:not(:disabled) { transform: translateY(1px); }
+      .calculate:disabled { cursor: wait; opacity: .76; }
+      .calculate svg { width: 18px; height: 18px; }
+
+      .result {
+        display: none;
+        margin-top: 16px;
+        padding: 22px 24px;
+        border: 1px solid #e3ebe1;
+        border-radius: 18px;
+        background: #f0f6ef;
+      }
+
+      .result.visible { display: block; }
+
+      .result-label {
+        margin: 0 0 5px;
+        color: #68766b;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .distance {
+        margin: 0;
+        color: var(--green-dark);
+        font-size: clamp(34px, 8vw, 46px);
+        font-weight: 780;
+        letter-spacing: -.055em;
+        line-height: 1.2;
+      }
+
+      .route-meta {
+        margin: 7px 0 0;
+        color: #78827b;
+        font-size: 12px;
+      }
+
+      .map-link {
+        display: flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 17px;
+        border: 1px solid #d5e3d3;
+        border-radius: 10px;
+        background: #fff;
+        color: var(--green-dark);
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .map-link:hover { border-color: #a9c8ac; background: #fbfdfb; }
+      .map-link svg { width: 17px; height: 17px; }
+
+      .message {
+        display: none;
+        margin: 14px 2px 0;
+        color: var(--danger);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .message.visible { display: block; }
+
+      footer {
+        padding: 20px 4px 0;
+        color: #89928a;
+        font-size: 11px;
+        line-height: 1.7;
+        text-align: center;
+      }
+
+      footer a { color: #69786d; }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,.45);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+      }
+
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      @media (max-width: 480px) {
+        .page { width: min(100% - 28px, 600px); padding-top: 30px; }
+        .card { padding: 20px 17px; }
+        header { margin-bottom: 24px; }
+        h1 { margin-top: 24px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3.5 6.5 9 4l6 2.5L20.5 4v13.5L15 20l-6-2.5-5.5 2.5z"/>
+              <path d="M9 4v13.5M15 6.5V20"/>
+              <path d="M12 9.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/>
+            </svg>
+          </span>
+          길찾기 거리 계산기
+        </div>
+        <h1>어디까지 가볼까?</h1>
+        <p class="intro">출발지와 도착지를 검색하면<br>자동차 이동 거리를 알려드려요.</p>
+      </header>
+
+      <section class="card" aria-label="거리 계산">
+        <div class="locations">
+          <span class="route-line" aria-hidden="true"></span>
+          <div class="location" data-field="start">
+            <span class="dot" aria-hidden="true"></span>
+            <label class="field-label" for="start">출발지</label>
+            <div class="input-wrap">
+              <input id="start" type="text" autocomplete="off" placeholder="장소나 주소를 입력하세요" aria-autocomplete="list" aria-expanded="false" aria-controls="start-suggestions">
+              <div id="start-suggestions" class="suggestions" role="listbox"></div>
+            </div>
+          </div>
+
+          <button class="swap" type="button" aria-label="출발지와 도착지 바꾸기" title="출발지와 도착지 바꾸기">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 3v18m0 0-4-4m4 4 4-4M17 21V3m0 0-4 4m4-4 4 4"/>
+            </svg>
+          </button>
+
+          <div class="location" data-field="end">
+            <span class="dot" aria-hidden="true"></span>
+            <label class="field-label" for="end">도착지</label>
+            <div class="input-wrap">
+              <input id="end" type="text" autocomplete="off" placeholder="장소나 주소를 입력하세요" aria-autocomplete="list" aria-expanded="false" aria-controls="end-suggestions">
+              <div id="end-suggestions" class="suggestions" role="listbox"></div>
+            </div>
+          </div>
+        </div>
+
+        <button class="calculate" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="10.8" cy="10.8" r="6.8"/>
+            <path d="m16 16 4.5 4.5"/>
+          </svg>
+          <span>거리 확인하기</span>
+        </button>
+        <p id="message" class="message" role="alert"></p>
+      </section>
+
+      <section id="result" class="result" aria-live="polite" aria-label="거리 계산 결과">
+        <p class="result-label">자동차 이동 거리</p>
+        <p id="distance" class="distance"></p>
+        <p id="route-meta" class="route-meta"></p>
+        <a id="map-link" class="map-link" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z"/>
+            <path d="M9 3v15m6-12v15"/>
+          </svg>
+          지도에서 보기
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6m0-6-9 9"/>
+            <path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/>
+          </svg>
+        </a>
+      </section>
+
+      <footer>
+        장소 검색: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a><br>
+        경로 데이터는 공개 서비스에서 제공하며 실제 도로 상황과 다를 수 있습니다.
+      </footer>
+    </main>
+
+    <script>
+      (() => {
+        const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+        const OSRM_URL = "https://router.project-osrm.org/route/v1/driving";
+        const MIN_REQUEST_INTERVAL = 1100;
+        const fields = ["start", "end"];
+        const state = {
+          start: { place: null, timer: null, sequence: 0 },
+          end: { place: null, timer: null, sequence: 0 }
+        };
+        let lastSearchTime = 0;
+        let searchQueue = Promise.resolve();
+
+        const getInput = (name) => document.getElementById(name);
+        const getSuggestions = (name) => document.getElementById(name + "-suggestions");
+        const message = document.getElementById("message");
+        const result = document.getElementById("result");
+        const calculateButton = document.querySelector(".calculate");
+        const originalButton = calculateButton.innerHTML;
+
+        function showMessage(text) {
+          message.textContent = text;
+          message.classList.add("visible");
+        }
+
+        function clearMessage() {
+          message.textContent = "";
+          message.classList.remove("visible");
+        }
+
+        function closeSuggestions(name) {
+          const input = getInput(name);
+          const list = getSuggestions(name);
+          list.classList.remove("open");
+          list.replaceChildren();
+          input.setAttribute("aria-expanded", "false");
+        }
+
+        function scheduleSearch(name) {
+          const input = getInput(name);
+          const field = state[name];
+          field.place = null;
+          field.sequence += 1;
+          input.removeAttribute("aria-activedescendant");
+          clearMessage();
+          result.classList.remove("visible");
+          window.clearTimeout(field.timer);
+
+          const query = input.value.trim();
+          if (query.length < 2) {
+            closeSuggestions(name);
+            return;
+          }
+
+          field.timer = window.setTimeout(() => searchPlaces(name, query, field.sequence), 650);
+        }
+
+        function renderSuggestions(name, places) {
+          const input = getInput(name);
+          const list = getSuggestions(name);
+          list.replaceChildren();
+
+          if (!places.length) {
+            const empty = document.createElement("div");
+            empty.className = "search-status";
+            empty.textContent = "검색 결과가 없습니다. 다른 이름으로 검색해 보세요.";
+            list.append(empty);
+            list.classList.add("open");
+            input.setAttribute("aria-expanded", "true");
+            return;
+          }
+
+          places.forEach((place, index) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.id = name + "-option-" + index;
+            option.className = "suggestion";
+            option.setAttribute("role", "option");
+
+            const title = document.createElement("span");
+            title.className = "suggestion-name";
+            title.textContent = place.name;
+            const detail = document.createElement("span");
+            detail.className = "suggestion-detail";
+            detail.textContent = place.detail;
+            option.append(title, detail);
+
+            option.addEventListener("click", () => {
+              state[name].place = place;
+              input.value = place.name;
+              closeSuggestions(name);
+              clearMessage();
+              result.classList.remove("visible");
+            });
+            list.append(option);
+          });
+          list.classList.add("open");
+          input.setAttribute("aria-expanded", "true");
+        }
+
+        function enqueueGeocoding(query) {
+          const request = searchQueue.then(async () => {
+            const wait = MIN_REQUEST_INTERVAL - (Date.now() - lastSearchTime);
+            if (wait > 0) await new Promise((resolve) => window.setTimeout(resolve, wait));
+            lastSearchTime = Date.now();
+            const url = new URL(NOMINATIM_URL);
+            url.search = new URLSearchParams({
+              q: query,
+              format: "jsonv2",
+              addressdetails: "1",
+              limit: "5"
+            });
+            const response = await fetch(url);
+            if (!response.ok) {
+              if (response.status === 429) throw new Error("검색 요청이 잠시 많습니다. 잠시 후 다시 검색해 주세요.");
+              throw new Error("장소를 검색하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+            }
+            return response.json();
+          });
+          searchQueue = request.catch(() => {});
+          return request;
+        }
+
+        async function searchPlaces(name, query, sequence) {
+          const list = getSuggestions(name);
+          list.replaceChildren();
+          const loading = document.createElement("div");
+          loading.className = "search-status";
+          loading.textContent = "실제 장소를 검색하고 있어요...";
+          list.append(loading);
+          list.classList.add("open");
+          getInput(name).setAttribute("aria-expanded", "true");
+
+          try {
+            const data = await enqueueGeocoding(query);
+            if (state[name].sequence !== sequence || getInput(name).value.trim() !== query) return;
+            const places = data.map((item) => ({
+              name: item.name || item.display_name.split(",")[0],
+              detail: item.display_name,
+              lat: Number(item.lat),
+              lon: Number(item.lon)
+            })).filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lon));
+            renderSuggestions(name, places);
+          } catch (error) {
+            if (state[name].sequence !== sequence) return;
+            closeSuggestions(name);
+            showMessage(error.message || "장소 검색 중 오류가 발생했습니다.");
+          }
+        }
+
+        fields.forEach((name) => {
+          const input = getInput(name);
+          input.addEventListener("input", () => scheduleSearch(name));
+          input.addEventListener("keydown", (event) => {
+            const list = getSuggestions(name);
+            const options = Array.from(list.querySelectorAll('[role="option"]'));
+            if (event.key === "Escape") closeSuggestions(name);
+            if (event.key === "ArrowDown" && options.length) {
+              event.preventDefault();
+              options[0].focus();
+            }
+          });
+        });
+
+        document.addEventListener("click", (event) => {
+          fields.forEach((name) => {
+            const container = getInput(name).closest(".location");
+            if (!container.contains(event.target)) closeSuggestions(name);
+          });
+        });
+
+        document.querySelector(".swap").addEventListener("click", () => {
+          const startInput = getInput("start");
+          const endInput = getInput("end");
+          const startText = startInput.value;
+          startInput.value = endInput.value;
+          endInput.value = startText;
+          const startPlace = state.start.place;
+          state.start.place = state.end.place;
+          state.end.place = startPlace;
+          fields.forEach(closeSuggestions);
+          clearMessage();
+          result.classList.remove("visible");
+        });
+
+        function formatDistance(meters) {
+          if (meters < 1000) return Math.round(meters).toLocaleString("ko-KR") + " m";
+          const kilometers = meters / 1000;
+          return new Intl.NumberFormat("ko-KR", {
+            minimumFractionDigits: kilometers < 10 ? 1 : 0,
+            maximumFractionDigits: 1
+          }).format(kilometers) + " km";
+        }
+
+        calculateButton.addEventListener("click", async () => {
+          clearMessage();
+          result.classList.remove("visible");
+
+          for (const name of fields) {
+            if (!state[name].place || getInput(name).value.trim() !== state[name].place.name) {
+              showMessage((name === "start" ? "출발지" : "도착지") + " 검색 결과에서 장소를 선택해 주세요.");
+              getInput(name).focus();
+              return;
+            }
+          }
+
+          const start = state.start.place;
+          const end = state.end.place;
+          if (start.lat === end.lat && start.lon === end.lon) {
+            showMessage("출발지와 도착지를 서로 다른 장소로 선택해 주세요.");
+            return;
+          }
+
+          calculateButton.disabled = true;
+          calculateButton.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>경로를 계산하고 있어요...</span>';
+          try {
+            const coordinates = encodeURIComponent(start.lon + "," + start.lat + ";" + end.lon + "," + end.lat);
+            const response = await fetch(OSRM_URL + "/" + coordinates + "?overview=false&alternatives=false&steps=false");
+            if (!response.ok) throw new Error("경로를 계산하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+            const data = await response.json();
+            if (data.code !== "Ok" || !data.routes || !data.routes.length) {
+              throw new Error("두 장소 사이의 자동차 경로를 찾을 수 없습니다.");
+            }
+
+            document.getElementById("distance").textContent = formatDistance(data.routes[0].distance);
+            document.getElementById("route-meta").textContent = start.name + " → " + end.name + " 자동차 경로 기준";
+            const mapUrl = new URL("https://www.openstreetmap.org/directions");
+            mapUrl.searchParams.set("engine", "fossgis_osrm_car");
+            mapUrl.searchParams.set("route", start.lat + "," + start.lon + ";" + end.lat + "," + end.lon);
+            document.getElementById("map-link").href = mapUrl.toString();
+            result.classList.add("visible");
+          } catch (error) {
+            showMessage(error.message || "경로 계산 중 오류가 발생했습니다.");
+          } finally {
+            calculateButton.disabled = false;
+            calculateButton.innerHTML = originalButton;
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
